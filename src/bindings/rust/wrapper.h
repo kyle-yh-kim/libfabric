@@ -1,6 +1,9 @@
+#ifndef container_of
+#define container_of(ptr, type, field) \
+	((type *) ((char *)ptr - offsetof(type, field)))
+#endif
+
 #include <stdio.h>
-#include "ofi.h"
-#include "ofi_mb.h"
 #include "fi_atomic.h"
 #include "fi_cm.h"
 #include "fi_collective.h"

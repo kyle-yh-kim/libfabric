@@ -4,7 +4,6 @@ use bindgen::callbacks::ParseCallbacks;
 use std::env;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(Debug)]
 struct RenameFunctions;
@@ -32,101 +31,37 @@ impl ParseCallbacks for RenameFunctions {
     }
 }
 
-fn build_libfabric(out_dir: &PathBuf, libfabric_rsync_dir: &PathBuf) {
-    // Build the libfabric on the fly, such that its header files under the installation path could be referred by the bindgen.
-    let libfabric_par_dir = Path::new("../../../../");
-    let install_dir = out_dir.join("install");
-
-    // Rsync the libfabric codebase into OUT_DIR, as the compilation process should never modify the source directory.
-    if !libfabric_rsync_dir.exists() {
-        Command::new("rsync")
-            .arg("-av")
-            .arg("--exclude='libfabric'")
-            .arg(format!(
-                "{}",
-                libfabric_par_dir.join("libfabric").display()
-            ))
-            .arg(format!("{}/", out_dir.display()))
-            .status()
-            .expect("Failed to copy vendor directory");
-    }
-
-    // Run autogen.
-    eprintln!("Run autogen.sh as part of libfabric compilation.");
-    assert!(Command::new("sh")
-        .current_dir(&libfabric_rsync_dir)
-        .arg("autogen.sh")
-        .status()
-        .unwrap()
-        .success());
-
-    // Run configure.
-    //
-    // Note that the binary is compiled on-the-fly to extract relevant header files under the compilation folder.
-    // The arguments provided for such compilation is not important, as the Libfabric API interface stays the same.
-    // During run-time, a separate user compiled library should be dynamically loaded via exporting the 'LD_LIBRARY_PATH' environment variable.
-    eprintln!("Run configure as part of libfabric compilation.");
-    assert!(Command::new("sh")
-        .current_dir(&libfabric_rsync_dir)
-        .arg("configure")
-        .arg(format!("--prefix={}", install_dir.display()))
-        .status()
-        .unwrap()
-        .success());
-
-    // Run make install.
-    eprintln!("Run make install as part of libfabric compilation.");
-    assert!(Command::new("make")
-        .current_dir(&libfabric_rsync_dir)
-        .arg("-j")
-        .arg("install")
-        .status()
-        .unwrap()
-        .success());
-
-    eprintln!("Libfabric successfully compiled.");
-}
-
 fn main() {
     #[cfg(windows)]
     compile_error!("This binding isn't compatible with Windows.");
+
+    // Link the libfabric library.
+    println!("cargo:rustc-link-lib=fabric");
 
     // Conditional compilation from the source code versus refer to the already installed library,
     // based on the vendor feature flag (ex: cargo build --features vendored).
     let vendored = cfg!(feature = "vendored");
     let include_paths = match vendored {
         true => {
-            // Vendored option, build the libfabric based on the available source code.
-            let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-            let install_dir = out_dir.join("install");
-            let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-            let libfabric_rsync_dir = out_dir.join("libfabric");
-            build_libfabric(&out_dir, &libfabric_rsync_dir);
-            // Tell cargo to look for the compiled shared library under the specified directory.
-            // Under below directories, we will build the libfabric.so on the fly.
-            println!(
-                "{}",
-                format!("cargo:rustc-link-search={}/lib", install_dir.display())
-            );
+            let libfabric_par_dir = Path::new("../../../../");
             vec![
-                libfabric_rsync_dir.clone(),
-                libfabric_rsync_dir.clone().join("include"),
-                libfabric_rsync_dir.clone().join("include").join("rdma"),
-                libfabric_rsync_dir.clone().join("install").join("include"),
-                libfabric_rsync_dir
-                    .clone()
-                    .join("install")
-                    .join("include")
-                    .join("rdma"),
+                libfabric_par_dir.join("libfabric"),
+                libfabric_par_dir.join("libfabric").join("include"),
+                libfabric_par_dir.join("libfabric").join("include").join("rdma"),
+                libfabric_par_dir.join("libfabric").join("include").join("rdma").join("providers"),
             ]
         }
         false => {
-            // Use the system's installed libfabric instead.
-            println!("cargo:rustc-link-lib=fabric");
             let lib = pkg_config::Config::new().probe("libfabric").unwrap();
-            lib.include_paths
+            assert_eq!(1, lib.include_paths.len());
+            vec![
+                lib.include_paths[0].clone(),
+                lib.include_paths[0].join("rdma"),
+                lib.include_paths[0].join("rdma").join("providers"),
+            ]
         }
     };
+    include_paths.iter().enumerate().for_each(|(i, x)| eprintln!("include_paths[{}]: {}", i, x.display()));
 
     // Compile the wrapper.c/h.
     // The goal of the wrapper.c/h is to create translation unit for "static inline" functions, such that they can be properly FFI'ed.
@@ -158,7 +93,6 @@ fn main() {
 
     // Write the bindings to the $OUT_DIR/bindings.rs file.
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");

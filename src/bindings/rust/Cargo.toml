@@ -13,3 +13,4 @@ walkdir = "2.3.2"
 pkg-config = "0.3.32"
 
 [dependencies]
+paste = "1.0.15"

@@ -8,5 +8,7 @@
 #![allow(unnecessary_transmutes)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
-// Dump the bindgen generated code.
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+// Dump the bindgen generated code, and export as public module named "bindings".
+pub mod bindings {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
