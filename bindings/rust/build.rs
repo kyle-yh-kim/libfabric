@@ -107,8 +107,8 @@ fn build_libfabric(install_dir: &PathBuf) {
 }
 
 fn main() {
-    #[cfg(windows)]
-    compile_error!("This binding isn't compatible with Windows.");
+    #[cfg(not(target_os = "linux"))]
+    compile_error!("This binding is only compatible with Linux.");
 
     // Link asan library.
     let asan = cfg!(feature = "asan");
@@ -126,53 +126,56 @@ fn main() {
         "cargo:warning=Building the binding with vendored: {}",
         vendored
     );
-    let include_paths = match vendored {
+
+    let (lib_path, include_paths) = match vendored {
         true => {
             // Vendored option, build the libfabric based on the available source code.
             let install_dir = PathBuf::from(env::var("OUT_DIR").unwrap()).join("install");
             build_libfabric(&install_dir);
 
-            // Provide static link search path.
-            // Vendored option, thus should refer to the compiled library's installation path.
-            println!(
-                "cargo:rustc-link-search=native={}",
-                install_dir.join("lib").display()
-            );
-
-            // Then do include_paths.
+            // Return relevant paths.
             let libfabric_par_dir = Path::new("../../../");
-            vec![
-                libfabric_par_dir.join("libfabric"),
-                libfabric_par_dir.join("libfabric").join("include"),
-                libfabric_par_dir
-                    .join("libfabric")
-                    .join("include")
-                    .join("rdma"),
-                libfabric_par_dir
-                    .join("libfabric")
-                    .join("include")
-                    .join("rdma")
-                    .join("providers"),
-            ]
+            (
+                // Provide static link search path.
+                // Vendored option, thus should refer to the compiled library's installation path.
+                install_dir.join("lib"),
+                vec![
+                    libfabric_par_dir.join("libfabric"),
+                    libfabric_par_dir.join("libfabric").join("include"),
+                    libfabric_par_dir
+                        .join("libfabric")
+                        .join("include")
+                        .join("rdma"),
+                    libfabric_par_dir
+                        .join("libfabric")
+                        .join("include")
+                        .join("rdma")
+                        .join("providers"),
+                ],
+            )
         }
         false => {
+            // Non-vendored option, and thus should refer to the already installed library's path.
             let lib = pkg_config::Config::new().probe("libfabric").unwrap();
             assert_eq!(1, lib.include_paths.len());
-
-            // Provide static link search path.
-            // Non-vendored option, and thus should refer to the already installed library's path.
             assert_eq!(1, lib.link_paths.len());
-            println!(
-                "cargo:rustc-link-search=native={}",
-                lib.link_paths[0].display()
-            );
-            vec![
-                lib.include_paths[0].clone(),
-                lib.include_paths[0].join("rdma"),
-                lib.include_paths[0].join("rdma").join("providers"),
-            ]
+
+            // Return relevant paths.
+            (
+                // Provide static link search path.
+                // Non-vendored option, and thus should refer to the already installed library's path.
+                lib.link_paths[0].clone(),
+                vec![
+                    lib.include_paths[0].clone(),
+                    lib.include_paths[0].join("rdma"),
+                    lib.include_paths[0].join("rdma").join("providers"),
+                ],
+            )
         }
     };
+
+    println!("cargo:rustc-link-search=native={}", lib_path.display());
+    println!("cargo:warning=Library link path: {}", lib_path.display());
     include_paths
         .iter()
         .enumerate()

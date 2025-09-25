@@ -1,11 +1,15 @@
-name: Binding checks
+name: Binding Checks
 on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  required:
-    name: Rust binding check
-    runs-on: ubuntu-latest
+  rust:
+    name: Rust binding check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: 
+          - ubuntu-latest
     defaults:
       run:
         working-directory: ./bindings/rust
